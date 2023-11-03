@@ -87,6 +87,32 @@
             .messages {
                 text-align: center;
             }
+            h2 {
+                text-align: center;
+                margin: 50px;
+            }
+            td, th {
+                border: solid 1px blueviolet;
+                padding: 5px;
+            }
+            .price {
+                border-collapse: collapse;
+                border: solid 1px blueviolet;
+                margin: auto;
+                text-align: center;
+            }
+            .first-row {
+                display: flex;
+                justify-content: space-around;
+            }
+            .entries, .calculus {
+                width: 30%;
+                border-color: blueviolet;
+                padding: 10px;
+                border-radius: 10px;
+                border-style: solid;
+            }
+
         </style>
     </head>
 
@@ -110,7 +136,7 @@
             >
                 <strong>Crédito Direto ao Consumidor</strong>
             </legend>
-            <form action="/cgi-bin/cdc.cgi" method="post">
+            <form id="cdc_form" method="post">
                 <div class="box">
                     <span class="input-group-addon" style="color: antiquewhite"
                         >$</span
@@ -176,15 +202,31 @@
                         id="ipb"
                         type="number"
                         name="pb"
-                        value="0.0"
+                        value="121.68"
                         min="0.0"
                         step="0.01"
                         class="form-control currency"
                         required
                     /><br />
 
+                    <span class="input-group-addon" style="color: antiquewhite"
+                        >$</span
+                    >
+                    <label for="months">Meses a Voltar(opcional):</label>
+                    <input
+                        id="months"
+                        type="number"
+                        name="pb"
+                        value="4"
+                        min="0"
+                        step="1"
+                        required
+                    /><br />
+
                     <label for="idp">Entrada?</label>
-                    <input id="idp" type="checkbox" name="dp" value="1" /><br />
+                    <input id="idp" type="checkbox" name="dp"/><br />
+                    <label for="iprint">Imprimir?</label>
+                    <input id="iprint" type="checkbox" name="print"/><br />
                 </div>
                 <div class="messages">
                     <input
@@ -206,10 +248,148 @@
             </div>
         </fieldset>
 
+        <div id="result">
+            <div class="first-row">
+                <div id="entries" class="entries"></div>
+                <div id="calculus" class="calculus"></div>
+            </div>
+
+            <h2>Tabela Price</h2>
+            <table id="price" class="price">
+            </table>
+
+        </div>
+
         <script src="LCG.js"></script>
 
         <script type="text/javascript">
+            $("#result").hide();
+
+            //prazo seria x, y seria vista, n seria p
+            function calcularJurosNewtonComEntrada(vista, prazo, n) {
+                let t_depois = prazo/vista;
+                let t = 0;
+
+                let iteracoes = 0;
+              
+                // Função para calcular f(x)
+                function calcularFuncao(x, b, c) {
+                  return vista * x * b - (prazo/n * (c-1));
+                }
+              
+                // Função para calcular a derivada de f(x)
+                function calcularDerivada(x, a, b) {
+                  return vista * (b+x*(n-1)*a) - prazo*b;
+                }
+              
+                // Iteração usando o método de Newton-Raphson
+                while (Math.abs(t_depois - t) > 1.0e-4) {
+                    t = t_depois;
+                    iteracoes++;
+                    let a = Math.pow(t+1,n-2);
+                    let b = Math.pow(t+1,n-1);
+                    let c = Math.pow(t+1,n);
+                    t_depois = t - calcularFuncao(t, b, c) / calcularDerivada(t, a, b);
+                }
+                
+                // Após a convergência, calcular a taxa de juros mensal
+                const taxaJurosMensal = t_depois * 100; // Convertendo para taxa percentual
+
+              
+                return {"juros": taxaJurosMensal, "iteracoes": iteracoes};
+              }
+
+            function calculateCF(taxa, prestacoes) {
+                return taxa/(1-Math.pow(1+taxa, -prestacoes)) // colocando 6 casas decimais
+            }
+
+            //prazo seria x, y seria vista, n seria p
+            function calcularJurosNewtonSemEntrada(vista, prazo, n) {
+                let t_depois = prazo/vista;
+                let t = 0;
+
+
+                let iteracoes = 0;
+              
+                // Função para calcular f(x)
+                function calcularFuncao(x, a) {
+                  return vista * x - (prazo/n*(1-a));
+                }
+              
+                // Função para calcular a derivada de f(x)
+                function calcularDerivada(b) {
+                  return vista - prazo*b;
+                }
+              
+                // Iteração usando o método de Newton-Raphson
+                while (Math.abs(t_depois - t) > 1.0e-4) {
+                    t = t_depois;
+                    iteracoes++;
+                    let a = Math.pow(t+1,-n);
+                    let b = Math.pow(t+1,-n-1);
+                    t_depois = t - calcularFuncao(t, a) / calcularDerivada(b);
+                }
+                
+                // Após a convergência, calcular a taxa de juros mensal
+                const taxaJurosMensal = t_depois * 100; // Convertendo para taxa percentual
+
+              
+                return {"juros": taxaJurosMensal, "iteracoes": iteracoes};
+              }
+
+
+            function printTable(n, cf, entrada, financiado, pago, taxa, meses) {
+                var table ="<tr><th>Mês</th><th>Prestação</th><th>Juros</th><th>Amortização</th><th>Saldo Devedor</th></tr><tr><td>n</td><td>R = pmt</td><td>J = SD * t</td><td>U = pmt - J</td><td>SD = PV - U</td></tr>";
+                var sd = entrada ? financiado - pago : financiado;
+                var pmt = cf*financiado;
+                var somaJuros = 0;
+                var somaU = 0;
+                var parcelaCorrigida = n - meses;
+                var valorCorrigido = 0;
+                for(var x=0; x<=n; x++)
+                {
+                    if (x == 0)
+                        table += `<tr><td>${x}</td><td>${0}</td><td>(${(taxa/100).toFixed(4)})</td><td>0.00</td><td>${sd}</td></tr>`;
+                    else {
+                        var J = (sd*taxa/100);
+                        somaJuros += J;
+                        var U = (pmt - J);
+                        somaU += U;
+                        sd = (sd - U);
+                        table += `<tr><td>${x}</td><td>${pmt.toFixed(2)}</td><td>${J.toFixed(3)}</td><td>${U.toFixed(2)}</td><td>${sd.toFixed(2)}</td></tr>`;
+                    }
+                    if (x == parcelaCorrigida){
+                        valorCorrigido = sd;}
+                }
+                table += `<tr><td>Total</td><td>${(cf*financiado*n).toFixed(2)}</td><td>${somaJuros.toFixed(3)}</td><td>${somaU.toFixed(2)}</td><td>${Math.abs(sd).toFixed(2)}</td></tr>`;
+                $("#price").html(table);
+                return valorCorrigido;
+            }
+
+            function printUserEntries(p, taxa, financiado, voltar, meses, entrada) {
+                var html = `<p>Parcelamento: ${p} meses</p>`
+                html += `<p>Taxa: ${Number(taxa).toFixed(4)}% ao mês ${((Math.pow(1+(taxa/100),12)-1)*100).toFixed(2)}% ao ano</p>`
+                html += `<p>Valor financiado: $${financiado}</p>`
+                html += `<p>Valor a voltar: $${voltar}</p>`
+                html += `<p>Meses a voltar: ${meses}</p>`
+                html += `<p>Entrada: ${entrada}</p>`
+
+                $("#entries").html(html);
+            }
+
+            function printCalculos(cf, financiado, iteracoes, real, corrigido, n) {
+                cf = cf.toFixed(6);
+                var html = `<p>Coeficiente de Financiamento: ${cf}</p>`
+                html += `<p>Prestação: ${cf} * $${financiado} = $${(cf*financiado).toFixed(2)} ao mês</p>`
+                html += `<p>Valor Pago: $${(cf*financiado*n).toFixed(2)}</p>`
+                html += `<p>Taxa real (${iteracoes}): ${real.toFixed(4)}% ao mês</p>`
+                html += `<p>Valor corrigido: $${Number(corrigido).toFixed(2)}</p>`
+
+                $("#calculus").html(html);
+            }
+
             $("#submitButton").click(function () {
+                event.preventDefault();
                 var errorMessage = "";
                 if ($("#itax").val() == 0 && $("#ipp").val() == 0) {
                     errorMessage +=
@@ -230,7 +410,33 @@
                     event.preventDefault();
                 } else {
                     $("#successMessage").show();
+                    $("#result").show();
                     $("#errorMessage").hide();
+                    $("#cdcfieldset").hide();
+
+                    let entrada = $("#idp").is(":checked");
+                    let vista = $("#ipv").val();
+                    let prazo = $("#ipp").val();
+                    let adiantamento = $("#ipb").val();
+                    let taxa = 0;
+                    let nIteracoes = 0;
+                    let taxaReal = 0;
+
+                    if ($("#itax").val() == 0) {
+                        const { juros, iteracoes } = entrada ? calcularJurosNewtonComEntrada(vista, prazo, $("#parc").val()) : calcularJurosNewtonSemEntrada(vista, prazo, $("#parc").val());
+                        taxa = juros;
+                        taxaReal = juros;
+                        nIteracoes = iteracoes;
+                    } else {
+                        taxa = $("#itax").val();
+                    }
+                    let cf = calculateCF(taxa/100, $("#parc").val());
+                    const corrigido = printTable($("#parc").val(), cf, entrada, vista, adiantamento, taxa, $("#months").val());
+
+                    printUserEntries($("#parc").val(), taxa, $("#ipv").val(), $("#ipb").val(), $("#months").val(), entrada)
+                    printCalculos(cf, $("#ipv").val(), nIteracoes, taxaReal, corrigido, $("#parc").val())
+
+                    if ($("#iprint").is(":checked")) window.print();
                 }
             });
             dragAndSave("#cdcfieldset"); // $("#cdcfieldset").draggable()
